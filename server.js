@@ -1,14 +1,32 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- This server is self-contained and does NOT read any local files. ---
-// --- Its only external dependency is the OPENAI_API_KEY environment variable. ---
-
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// --- NEW: Load the Q&A Knowledge Base from the JSON file ---
+let knowledgeBase = '';
+try {
+    // Construct the full path to the JSON file
+    const filePath = path.join(__dirname, '400QA2.json');
+    // Read the file's content
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    // Parse the JSON data
+    const jsonData = JSON.parse(fileContent);
+    // Convert the JSON object back into a string to be injected into the prompt
+    knowledgeBase = JSON.stringify(jsonData);
+    console.log('Successfully loaded and parsed the Q&A knowledge base.');
+} catch (error) {
+    console.error('Error loading or parsing 400QA2.json:', error);
+    // If the file is missing or invalid, the chatbot will still work but without the custom knowledge.
+    knowledgeBase = 'No knowledge base file found.';
+}
+// --- END NEW SECTION ---
 
 // Middleware setup
 app.use(cors());
@@ -16,22 +34,19 @@ app.use(express.json());
 
 // Health check route
 app.get('/', (req, res) => {
-    res.send('Sakis Athan AI Chatbot Server is running!');
+    res.send('Sakis Athan AI Chatbot Server with Knowledge Base is running!');
 });
 
-// The only active route for the chatbot
 app.post('/chat', async (req, res) => {
     console.log('--- NEW REQUEST ---');
     console.log(`[1] Received a request on /chat at ${new Date().toISOString()}`);
 
-    // Check for the API Key first
     if (!OPENAI_API_KEY) {
         console.error('[ERROR] Step 2 Failed: OpenAI API key is NOT configured on the server.');
         return res.status(500).json({ error: 'OpenAI API key is not configured on the server.' });
     }
     console.log('[2] API Key is present.');
 
-    // Check the request body
     const { message } = req.body;
     console.log('[3] Request body received:', req.body);
 
@@ -41,10 +56,21 @@ app.post('/chat', async (req, res) => {
     }
     console.log('[4] "message" field is present with content:', message);
 
+    // --- UPDATED: The system prompt now includes the knowledge base ---
     const systemInstruction = {
         role: "system",
-        content: "You are 'Sakis Bot', a friendly and professional AI assistant for Sakis Athan, an AI & Automation Engineer. Your purpose is to answer questions about his services and encourage potential clients to get in touch. Keep your answers concise and helpful. Services include: Business Process Automation, AI-Powered Solutions, and Custom System Integrations. Contact info: sakissystems@gmail.com. Always guide users to the contact form or direct contact for detailed project discussions."
+        content: `You are 'Sakis Bot', a friendly and professional AI assistant for Sakis Athan, an AI & Automation Engineer. 
+        
+        Your primary goal is to answer questions based on the provided "Knowledge Base". You MUST prioritize the information in the Knowledge Base above all else. If the answer is in the Knowledge Base, use it directly. If the question is not covered in the Knowledge Base, you may use your general knowledge but always relate it back to Sakis's skills and services.
+
+        Keep your answers concise and helpful. Always be professional and encourage potential clients to get in touch for detailed project discussions. Sakis's contact info is sakissystems@gmail.com.
+
+        --- KNOWLEDGE BASE START ---
+        ${knowledgeBase}
+        --- KNOWLEDGE BASE END ---
+        `
     };
+    // --- END UPDATED SECTION ---
 
     const messages = [
         systemInstruction,
@@ -70,7 +96,6 @@ app.post('/chat', async (req, res) => {
         if (!response.ok) {
             const errorBody = await response.text();
             console.error(`[ERROR] Step 6 Failed: OpenAI API returned status ${response.status}`, errorBody);
-            // This error is often caused by an invalid API key or billing issues.
             throw new Error(`OpenAI API request failed with status ${response.status}`);
         }
 
