@@ -9,24 +9,18 @@ const port = process.env.PORT || 3000;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// --- NEW: Load the Q&A Knowledge Base from the JSON file ---
+// --- Load the Q&A Knowledge Base from the JSON file ---
 let knowledgeBase = '';
 try {
-    // Construct the full path to the JSON file
     const filePath = path.join(__dirname, '400QA2.json');
-    // Read the file's content
     const fileContent = fs.readFileSync(filePath, 'utf8');
-    // Parse the JSON data
     const jsonData = JSON.parse(fileContent);
-    // Convert the JSON object back into a string to be injected into the prompt
     knowledgeBase = JSON.stringify(jsonData);
     console.log('Successfully loaded and parsed the Q&A knowledge base.');
 } catch (error) {
     console.error('Error loading or parsing 400QA2.json:', error);
-    // If the file is missing or invalid, the chatbot will still work but without the custom knowledge.
     knowledgeBase = 'No knowledge base file found.';
 }
-// --- END NEW SECTION ---
 
 // Middleware setup
 app.use(cors());
@@ -56,7 +50,6 @@ app.post('/chat', async (req, res) => {
     }
     console.log('[4] "message" field is present with content:', message);
 
-    // --- UPDATED: The system prompt now includes the knowledge base ---
     const systemInstruction = {
         role: "system",
         content: `You are 'Sakis Bot', a friendly and professional AI assistant for Sakis Athan, an AI & Automation Engineer. 
@@ -70,7 +63,6 @@ app.post('/chat', async (req, res) => {
         --- KNOWLEDGE BASE END ---
         `
     };
-    // --- END UPDATED SECTION ---
 
     const messages = [
         systemInstruction,
@@ -86,7 +78,8 @@ app.post('/chat', async (req, res) => {
                 'Authorization': `Bearer ${OPENAI_API_KEY}`
             },
             body: JSON.stringify({
-                model: 'gpt-3.5-turbo',
+                // *** FIX: Specified a model with a larger 16k context window ***
+                model: 'gpt-3.5-turbo-0125',
                 messages: messages,
             }),
         });
