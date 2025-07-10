@@ -3,44 +3,43 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 
 const app = express();
-// Render provides the PORT environment variable
 const port = process.env.PORT || 3000;
 
-// The API key will be set as an environment variable on the Render dashboard
+// --- This server is self-contained and does NOT read any local files. ---
+// --- Its only external dependency is the OPENAI_API_KEY environment variable. ---
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// IMPORTANT: Make sure cors() is used before the routes
+// Middleware setup
 app.use(cors());
-// IMPORTANT: express.json() middleware MUST be used to parse the request body
 app.use(express.json());
 
-
-// A simple health check endpoint to make sure the server is running
+// Health check route
 app.get('/', (req, res) => {
     res.send('Sakis Athan AI Chatbot Server is running!');
 });
 
+// The only active route for the chatbot
 app.post('/chat', async (req, res) => {
-    // =================================================================
-    // DEBUGGING LOG: This will show us exactly what the server receives
-    // =================================================================
-    console.log('Received a request on /chat');
-    console.log('Request Body:', req.body);
-    // =================================================================
+    console.log('--- NEW REQUEST ---');
+    console.log(`[1] Received a request on /chat at ${new Date().toISOString()}`);
 
+    // Check for the API Key first
     if (!OPENAI_API_KEY) {
-        console.error('Error: OpenAI API key is not configured.');
+        console.error('[ERROR] Step 2 Failed: OpenAI API key is NOT configured on the server.');
         return res.status(500).json({ error: 'OpenAI API key is not configured on the server.' });
     }
+    console.log('[2] API Key is present.');
 
+    // Check the request body
     const { message } = req.body;
+    console.log('[3] Request body received:', req.body);
 
     if (!message) {
-        // This is the source of the "400 Bad Request" error.
-        // It means the req.body did not contain a "message" field.
-        console.error('Error: Request body is missing the "message" field.');
+        console.error('[ERROR] Step 3 Failed: Request body is missing the "message" field.');
         return res.status(400).json({ error: 'Request body must contain a "message" field.' });
     }
+    console.log('[4] "message" field is present with content:', message);
 
     const systemInstruction = {
         role: "system",
@@ -53,7 +52,7 @@ app.post('/chat', async (req, res) => {
     ];
 
     try {
-        console.log('Sending request to OpenAI...');
+        console.log('[5] Sending request to OpenAI API...');
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -65,21 +64,24 @@ app.post('/chat', async (req, res) => {
                 messages: messages,
             }),
         });
+        
+        console.log('[6] Received response from OpenAI.');
 
         if (!response.ok) {
             const errorBody = await response.text();
-            console.error('OpenAI API Error:', response.status, errorBody);
+            console.error(`[ERROR] Step 6 Failed: OpenAI API returned status ${response.status}`, errorBody);
+            // This error is often caused by an invalid API key or billing issues.
             throw new Error(`OpenAI API request failed with status ${response.status}`);
         }
 
         const data = await response.json();
         const replyContent = data.choices[0]?.message?.content || "Sorry, I couldn't get a proper response. Please try again.";
         
-        console.log('Successfully got reply from OpenAI. Sending response to client.');
+        console.log('[7] Successfully processed reply. Sending response back to the client.');
         res.json({ reply: replyContent });
 
     } catch (error) {
-        console.error('Catastrophic error in /chat route:', error.message);
+        console.error('[FATAL ERROR] An error occurred in the try-catch block:', error.message);
         res.status(500).json({ error: 'Failed to fetch response from AI.' });
     }
 });
