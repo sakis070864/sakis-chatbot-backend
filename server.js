@@ -10,55 +10,57 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // --- CONFIGURATION ---
-// Load environment variables for API keys
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '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';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// Firebase Admin SDK Configuration
-// IMPORTANT: Replace with your actual Firebase service account key JSON
-const serviceAccount = {
-  "type": "service_account",
-  "project_id": "your-project-id",
-  "private_key_id": "your-private-key-id",
-  "private_key": "-----BEGIN PRIVATE KEY-----\\nYOUR_PRIVATE_KEY\\n-----END PRIVATE KEY-----\\n",
-  "client_email": "firebase-adminsdk-your-info@your-project-id.iam.gserviceaccount.com",
-  "client_id": "your-client-id",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-your-info%40your-project-id.iam.gserviceaccount.com"
-};
-
+// --- Firebase Admin SDK Initialization ---
 try {
+    // The FIREBASE_SERVICE_ACCOUNT_KEY environment variable should contain the entire JSON key file as a string.
+    const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (!serviceAccountString) {
+        throw new Error('Firebase service account key environment variable is not set.');
+    }
+    const serviceAccount = JSON.parse(serviceAccountString);
+    
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount)
     });
     console.log('Firebase Admin SDK initialized successfully.');
+
 } catch (error) {
-    console.error('CRITICAL ERROR: Firebase Admin SDK initialization failed. Intake reports will not be saved.', error);
+    console.error('CRITICAL ERROR: Firebase Admin SDK initialization failed. Intake reports will not be saved.', error.message);
 }
 
 const db = admin.firestore();
 
-// Nodemailer Configuration for sending email reports
-// IMPORTANT: Use environment variables for email credentials in a real app
-const transporter = nodemailer.createTransport({
+// --- Nodemailer Configuration ---
+const mailerConfig = {
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER || 'your-email@gmail.com', // Your email
-        pass: process.env.EMAIL_PASS || 'your-app-password'    // Your Gmail App Password
+        user: process.env.EMAIL_USER, // Your Gmail address from environment variables
+        pass: process.env.EMAIL_PASS     // Your Gmail App Password from environment variables
     }
-});
+};
+
+// Runtime check for Nodemailer configuration
+if (!mailerConfig.auth.user || !mailerConfig.auth.pass) {
+    console.error('CRITICAL ERROR: Nodemailer is not configured. EMAIL_USER or EMAIL_PASS environment variables are missing. Email notifications will fail.');
+}
+const transporter = nodemailer.createTransport(mailerConfig);
 
 
 // --- KNOWLEDGE BASE LOADING ---
 let qaData = [];
 try {
     const filePath = path.join(__dirname, '400QA2.json');
-    const fileContent = fs.readFileSync(filePath, 'utf8');
-    qaData = JSON.parse(fileContent);
-    console.log(`Successfully loaded ${qaData.length} Q&A items into the knowledge base.`);
+    if (fs.existsSync(filePath)) {
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        qaData = JSON.parse(fileContent);
+        console.log(`Successfully loaded ${qaData.length} Q&A items into the knowledge base.`);
+    } else {
+        console.warn('WARNING: 400QA2.json not found. The general chatbot will have no custom knowledge.');
+    }
 } catch (error) {
-    console.error('CRITICAL ERROR: Could not load or parse 400QA2.json. The chatbot will not have custom knowledge.', error);
+    console.error('CRITICAL ERROR: Could not load or parse 400QA2.json.', error);
 }
 
 // --- MIDDLEWARE ---
@@ -269,7 +271,7 @@ app.post('/intake', async (req, res) => {
             `;
 
             await transporter.sendMail({
-                from: '"Sakis AI Intake Bot" <your-email@gmail.com>',
+                from: `"Sakis AI Intake Bot" <${mailerConfig.auth.user}>`,
                 to: "sakissystems@gmail.com",
                 subject: `New Project Intake: ${report.projectName} (${caseNumber})`,
                 html: emailBody,
