@@ -237,7 +237,21 @@ app.post('/intake', async (req, res) => {
 
             const managerData = await managerResponse.json();
             const reportJsonString = managerData.choices[0]?.message?.content;
-            const report = JSON.parse(reportJsonString);
+            let report;
+
+            // FIX: Added robust JSON parsing and validation to prevent server crash
+            try {
+                report = JSON.parse(reportJsonString);
+                if (!report.projectName || !report.projectSummary || !report.keyFeatures || !report.estimatedTimeline) {
+                    throw new Error("AI response was valid JSON but missing required fields.");
+                }
+            } catch (e) {
+                console.error("Failed to parse or validate the report JSON from AI.", {
+                    error: e.message,
+                    aiResponse: reportJsonString
+                });
+                throw new Error("The AI failed to generate a valid project report. Please try again.");
+            }
 
             // Generate Case Number
             const now = new Date();
