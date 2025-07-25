@@ -37,7 +37,7 @@ const mailerConfig = {
     service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER, // Your Gmail address from environment variables
-        pass: process.env.EMAIL_PASS     // Your Gmail App Password from environment variables
+        pass: process.env.EMAIL_PASS      // Your Gmail App Password from environment variables
     }
 };
 
@@ -213,12 +213,15 @@ app.post('/intake', async (req, res) => {
             console.log('[Intake-2] Analyst determined intake is complete. Proceeding to report generation.');
             
             // Persona 2: The Project Manager (for report generation)
+            // **MODIFICATION**: Added interviewDate to the required JSON keys and provided the current date.
+            const currentDate = new Date().toUTCString();
             const managerSystemPrompt = `You are a Senior Project Manager. You will be given a transcript of a client interview. Your task is to create a structured, professional project report in JSON format.
-            The JSON object must have these exact keys: "projectName", "projectSummary", "keyFeatures", "estimatedTimeline".
+            The JSON object must have these exact keys: "projectName", "projectSummary", "keyFeatures", "estimatedTimeline", "interviewDate".
             - projectName: A concise, descriptive name for the project.
             - projectSummary: A 2-3 sentence paragraph summarizing the client's problem and the proposed solution.
             - keyFeatures: An array of strings, with each string being a specific feature or requirement.
             - estimatedTimeline: A string providing a rough, non-binding estimate of the work required (e.g., "5-8 hours", "3-5 business days", "2-3 weeks").
+            - interviewDate: The date and time of the interview. Use this exact value: "${currentDate}".
             Analyze the transcript carefully to provide a realistic estimate. Base your response ONLY on the provided transcript.`;
 
             const managerMessages = [
@@ -242,7 +245,8 @@ app.post('/intake', async (req, res) => {
             // FIX: Added robust JSON parsing and validation to prevent server crash
             try {
                 report = JSON.parse(reportJsonString);
-                if (!report.projectName || !report.projectSummary || !report.keyFeatures || !report.estimatedTimeline) {
+                // **MODIFICATION**: Added validation for the new interviewDate field.
+                if (!report.projectName || !report.projectSummary || !report.keyFeatures || !report.estimatedTimeline || !report.interviewDate) {
                     throw new Error("AI response was valid JSON but missing required fields.");
                 }
             } catch (e) {
@@ -268,9 +272,11 @@ app.post('/intake', async (req, res) => {
 
             // Send Email Notification
             console.log('[Intake-5] Sending email notification...');
+            // **MODIFICATION**: Added the interview date to the email body.
             const emailBody = `
                 <h1>New Project Intake Report</h1>
                 <p><strong>Case Number:</strong> ${caseNumber}</p>
+                <p><strong>Interview Date:</strong> ${report.interviewDate}</p>
                 <hr>
                 <h2>${report.projectName}</h2>
                 <p><strong>Summary:</strong> ${report.projectSummary}</p>
