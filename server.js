@@ -11,13 +11,11 @@ const port = process.env.PORT || 3000;
 
 // --- CONFIGURATION ---
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-// NEW: Developer info password from environment variables
 const DEVELOPER_INFO_PASSWORD = process.env.DEVELOPER_INFO;
 
 
 // --- Firebase Admin SDK Initialization ---
 try {
-    // The FIREBASE_SERVICE_ACCOUNT_KEY environment variable should contain the entire JSON key file as a string.
     const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     if (!serviceAccountString) {
         throw new Error('Firebase service account key environment variable is not set.');
@@ -39,12 +37,11 @@ const db = admin.firestore();
 const mailerConfig = {
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER, // Your Gmail address from environment variables
-        pass: process.env.EMAIL_PASS      // Your Gmail App Password from environment variables
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
     }
 };
 
-// Runtime check for Nodemailer configuration
 if (!mailerConfig.auth.user || !mailerConfig.auth.pass) {
     console.error('CRITICAL ERROR: Nodemailer is not configured. EMAIL_USER or EMAIL_PASS environment variables are missing. Email notifications will fail.');
 }
@@ -186,13 +183,23 @@ app.post('/intake', async (req, res) => {
     }
 
     try {
-        const analystSystemPrompt = `You are an expert AI Project Analyst working for Sakis Athan. Your goal is to conduct an intelligent interview with a potential client to fully understand their project needs.
-        - Your current conversation history is provided below.
-        - Your task is to ask the ONE best, most insightful follow-up question to clarify the user's needs.
-        - Analyze the user's last message in the context of the whole conversation. Identify ambiguities, unstated assumptions, or missing details.
-        - Ask open-ended questions. Avoid simple yes/no questions.
-        - If the user's request seems clear, detailed, and actionable, and you have a good sense of the applications involved, the core workflow, and the desired outcome, you MUST end your response with the exact phrase: "[END_OF_INTAKE]".
-        - Otherwise, just ask your clarifying question without any preamble.`;
+        // **MODIFICATION**: Enhanced the AI Project Analyst's prompt for more thorough questioning.
+        const analystSystemPrompt = `You are an expert AI Project Analyst for Sakis Athan. Your goal is to conduct a thorough and intelligent interview with a potential client to fully understand their project needs. Your questioning must be comprehensive.
+
+        **Your Process:**
+        1.  **Analyze the entire conversation history** to understand what has been discussed.
+        2.  **Identify Missing Information:** Your primary task is to identify critical missing details. Specifically probe for:
+            - **Target Audience:** Who will be using this tool or system? (e.g., "Who are the primary users of this system?")
+            - **Key Integrations:** What other software, APIs, or data sources does this need to connect with? (e.g., "Does this tool need to integrate with any other platforms like a CRM, Google Sheets, or a specific API?")
+            - **Success Metrics:** How will the client know the project is successful? What is the desired outcome? (e.g., "What would a successful outcome look like for you?", "How will you measure the success of this automation?")
+            - **Workflow Details:** Deeply understand the current manual process you are replacing. Ask for step-by-step descriptions.
+        3.  **Ask ONE Insightful Question:** Based on your analysis, ask the single best, open-ended follow-up question to uncover this missing information. Do not ask multiple questions at once.
+        4.  **Determine Completion:** Only after you have a clear understanding of the project's goals, users, integrations, and success metrics (which usually requires at least 3-4 follow-up questions from you), you MUST end your response with the exact phrase: "[END_OF_INTAKE]". Do not end the interview prematurely.
+        
+        **Rules:**
+        - Be professional, curious, and analytical.
+        - Never end the intake on your first or second response. Always probe deeper.
+        - If you are not ending the intake, ONLY output the next question. No preamble.`;
 
         const analystMessages = [
             { role: 'system', content: analystSystemPrompt },
@@ -203,7 +210,7 @@ app.post('/intake', async (req, res) => {
         const analystResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-            body: JSON.stringify({ model: 'gpt-3.5-turbo-0125', messages: analystMessages }),
+            body: JSON.stringify({ model: 'gpt-4-turbo', messages: analystMessages }), // Using a more powerful model for better analysis
         });
 
         if (!analystResponse.ok) throw new Error('Analyst AI API request failed.');
@@ -306,7 +313,7 @@ app.post('/intake', async (req, res) => {
 });
 
 /**
- * NEW Endpoint for verifying the developer password.
+ * Endpoint for verifying the developer password.
  */
 app.post('/verify-developer', (req, res) => {
     console.log('--- NEW /verify-developer REQUEST ---');
