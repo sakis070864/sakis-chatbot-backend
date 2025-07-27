@@ -11,6 +11,9 @@ const port = process.env.PORT || 3000;
 
 // --- CONFIGURATION ---
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// NEW: Developer info password from environment variables
+const DEVELOPER_INFO_PASSWORD = process.env.DEVELOPER_INFO;
+
 
 // --- Firebase Admin SDK Initialization ---
 try {
@@ -167,7 +170,7 @@ app.post('/chat', async (req, res) => {
 });
 
 /**
- * NEW Endpoint for the intelligent project intake conversation.
+ * Endpoint for the intelligent project intake conversation.
  */
 app.post('/intake', async (req, res) => {
     console.log('--- NEW /intake REQUEST ---');
@@ -183,7 +186,6 @@ app.post('/intake', async (req, res) => {
     }
 
     try {
-        // Persona 1: The Project Analyst (for conversation)
         const analystSystemPrompt = `You are an expert AI Project Analyst working for Sakis Athan. Your goal is to conduct an intelligent interview with a potential client to fully understand their project needs.
         - Your current conversation history is provided below.
         - Your task is to ask the ONE best, most insightful follow-up question to clarify the user's needs.
@@ -212,8 +214,6 @@ app.post('/intake', async (req, res) => {
         if (analystReply.includes('[END_OF_INTAKE]')) {
             console.log('[Intake-2] Analyst determined intake is complete. Proceeding to report generation.');
             
-            // Persona 2: The Project Manager (for report generation)
-            // **MODIFICATION**: Added interviewDate to the required JSON keys and provided the current date.
             const currentDate = new Date().toUTCString();
             const managerSystemPrompt = `You are a Senior Project Manager. You will be given a transcript of a client interview. Your task is to create a structured, professional project report in JSON format.
             The JSON object must have these exact keys: "projectName", "projectSummary", "keyFeatures", "estimatedTimeline", "interviewDate".
@@ -242,10 +242,8 @@ app.post('/intake', async (req, res) => {
             const reportJsonString = managerData.choices[0]?.message?.content;
             let report;
 
-            // FIX: Added robust JSON parsing and validation to prevent server crash
             try {
                 report = JSON.parse(reportJsonString);
-                // **MODIFICATION**: Added validation for the new interviewDate field.
                 if (!report.projectName || !report.projectSummary || !report.keyFeatures || !report.estimatedTimeline || !report.interviewDate) {
                     throw new Error("AI response was valid JSON but missing required fields.");
                 }
@@ -257,11 +255,9 @@ app.post('/intake', async (req, res) => {
                 throw new Error("The AI failed to generate a valid project report. Please try again.");
             }
 
-            // Generate Case Number
             const now = new Date();
             const caseNumber = `SA-${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-            // Save to Firebase
             console.log(`[Intake-4] Saving report to Firestore with Case Number: ${caseNumber}`);
             await db.collection('intakeReports').doc(caseNumber).set({
                 ...report,
@@ -270,9 +266,7 @@ app.post('/intake', async (req, res) => {
                 fullTranscript: conversation
             });
 
-            // Send Email Notification
             console.log('[Intake-5] Sending email notification...');
-            // **MODIFICATION**: Added the interview date to the email body.
             const emailBody = `
                 <h1>New Project Intake Report</h1>
                 <p><strong>Case Number:</strong> ${caseNumber}</p>
@@ -301,7 +295,6 @@ app.post('/intake', async (req, res) => {
             res.json({ status: 'complete', caseNumber: caseNumber, report: report });
 
         } else {
-            // Conversation is still in progress
             console.log('[Intake-2] Analyst provided a new question. Continuing conversation.');
             res.json({ status: 'in-progress', reply: analystReply });
         }
@@ -309,6 +302,31 @@ app.post('/intake', async (req, res) => {
     } catch (error) {
         console.error('[FATAL ERROR] An error occurred in the /intake try-catch block:', error.message);
         res.status(500).json({ error: 'An internal error occurred while processing your request.' });
+    }
+});
+
+/**
+ * NEW Endpoint for verifying the developer password.
+ */
+app.post('/verify-developer', (req, res) => {
+    console.log('--- NEW /verify-developer REQUEST ---');
+    const { password } = req.body;
+
+    if (!DEVELOPER_INFO_PASSWORD) {
+        console.error('[ERROR] DEVELOPER_INFO environment variable is not set on the server.');
+        return res.status(500).json({ success: false, message: 'Server configuration error.' });
+    }
+
+    if (!password) {
+        return res.status(400).json({ success: false, message: 'Password is required.' });
+    }
+
+    if (password === DEVELOPER_INFO_PASSWORD) {
+        console.log('[Auth] Developer password verified successfully.');
+        res.json({ success: true });
+    } else {
+        console.log('[Auth] Incorrect developer password attempt.');
+        res.status(401).json({ success: false, message: 'Incorrect password.' });
     }
 });
 
