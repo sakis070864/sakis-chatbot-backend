@@ -5,13 +5,16 @@ const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
+const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 // --- CONFIGURATION ---
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY_INTAKE;
 const DEVELOPER_INFO_PASSWORD = process.env.DEVELOPER_INFO;
+
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 
 // --- Firebase Admin SDK Initialization ---
@@ -78,8 +81,8 @@ app.get('/', (req, res) => {
 app.post('/chat', async (req, res) => {
     console.log('--- NEW /chat REQUEST ---');
     
-    if (!OPENAI_API_KEY) {
-        return res.status(500).json({ error: 'OpenAI API key is not configured on the server.' });
+    if (!GEMINI_API_KEY) {
+        return res.status(500).json({ error: 'Gemini API key is not configured on the server.' });
     }
 
     const { message } = req.body;
@@ -116,46 +119,55 @@ app.post('/chat', async (req, res) => {
     
     console.log(`[Chat-2] Found ${relevantSnippets.length} relevant snippets.`);
 
-    const systemInstruction = {
-        role: "system",
-        content: `You are 'Sakis Bot', a friendly and professional AI assistant for Sakis Athan, an AI & Automation Engineer. 
+    const systemInstructionContent = `You are 'Sakis Bot', a friendly and professional AI assistant for Sakis Athan, an AI & Automation Engineer. 
         Your primary goal is to answer the user's question based on the provided "Relevant Information" below. You MUST prioritize this information. If the information provides a good answer, use it directly. If the information is not sufficient, you may use your general knowledge but you must relate it back to Sakis's skills and services.
         Keep your answers concise and helpful. Always be professional and encourage potential clients to get in touch for detailed project discussions. Sakis's contact info is sakissystems@gmail.com.
         --- RELEVANT INFORMATION START ---
         ${knowledgeBase}
         --- RELEVANT INFORMATION END ---
-        `
-    };
+        `;
 
-    const messages = [
-        systemInstruction,
-        { role: "user", content: message }
+    const safetySettings = [
+        {
+            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
     ];
 
-    try {
-        console.log('[Chat-3] Sending request to OpenAI API...');
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${OPENAI_API_KEY}`
+        try {
+        console.log('[Chat-3] Sending request to Gemini API...');
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro", safetySettings });
+        const chat = model.startChat({
+            history: [
+                {
+                    role: "user",
+                    parts: [{ text: systemInstructionContent }],
+                },
+                {
+                    role: "model",
+                    parts: [{ text: "Okay, I understand. I will adhere to these instructions." }],
+                },
+            ],
+            generationConfig: {
+                maxOutputTokens: 200,
             },
-            body: JSON.stringify({
-                model: 'gpt-3.5-turbo-0125',
-                messages: messages,
-            }),
         });
-        
-        console.log('[Chat-4] Received response from OpenAI.');
 
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error(`[ERROR] OpenAI API returned status ${response.status}`, errorBody);
-            throw new Error(`OpenAI API request failed with status ${response.status}`);
-        }
-
-        const data = await response.json();
-        const replyContent = data.choices[0]?.message?.content || "Sorry, I couldn't get a proper response. Please try again.";
+        const result = await chat.sendMessage(message);
+        const response = await result.response;
+        const replyContent = response.text();
         
         console.log('[Chat-5] Successfully processed reply. Sending response back to the client.');
         res.json({ reply: replyContent });
@@ -172,8 +184,8 @@ app.post('/chat', async (req, res) => {
 app.post('/intake', async (req, res) => {
     console.log('--- NEW /intake REQUEST ---');
 
-    if (!OPENAI_API_KEY) {
-        return res.status(500).json({ error: 'OpenAI API key is not configured on the server.' });
+    if (!GEMINI_API_KEY) {
+        return res.status(500).json({ error: 'Gemini API key is not configured on the server.' });
     }
 
     const { conversation } = req.body;
@@ -184,7 +196,7 @@ app.post('/intake', async (req, res) => {
 
     try {
         // **MODIFICATION**: Enhanced the AI Project Analyst's prompt for more thorough questioning.
-        const analystSystemPrompt = `You are an expert AI Project Analyst for Sakis Athan. Your goal is to conduct a thorough and intelligent interview with a potential client to fully understand their project needs. Your questioning must be comprehensive.
+        const analystSystemPromptContent = `You are an expert AI Project Analyst for Sakis Athan. Your goal is to conduct a thorough and intelligent interview with a potential client to fully understand their project needs. Your questioning must be comprehensive.
 
         **Your Process:**
         1.  **Analyze the entire conversation history** to understand what has been discussed.
@@ -201,28 +213,54 @@ app.post('/intake', async (req, res) => {
         - Never end the intake on your first or second response. Always probe deeper.
         - If you are not ending the intake, ONLY output the next question. No preamble.`;
 
-        const analystMessages = [
-            { role: 'system', content: analystSystemPrompt },
-            ...conversation.map(msg => ({ role: msg.role, content: msg.content }))
+        const analystSafetySettings = [
+            {
+                category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+                category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+                category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+                category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
         ];
 
-        console.log('[Intake-1] Asking Analyst AI for the next question...');
-        const analystResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-            body: JSON.stringify({ model: 'gpt-4-turbo', messages: analystMessages }), // Using a more powerful model for better analysis
-        });
+        const analystHistory = [
+            {
+                role: "user",
+                parts: [{ text: analystSystemPromptContent }],
+            },
+            {
+                role: "model",
+                parts: [{ text: "Okay, I understand. I will adhere to these instructions." }],
+            },
+            ...conversation.map(msg => ({
+                role: msg.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: msg.content }],
+            }))
+        ];
 
-        if (!analystResponse.ok) throw new Error('Analyst AI API request failed.');
+        const lastUserMessage = conversation[conversation.length - 1].content;
 
-        const analystData = await analystResponse.json();
-        let analystReply = analystData.choices[0]?.message?.content;
+        console.log(`[Intake-1] Asking Analyst AI about: "${lastUserMessage}"`);
+        const analystModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro", safetySettings: analystSafetySettings });
+        const analystChat = analystModel.startChat({ history: analystHistory });
+        const analystResult = await analystChat.sendMessage(lastUserMessage);
+        const analystResponse = await analystResult.response;
+        let analystReply = analystResponse.text();
 
         if (analystReply.includes('[END_OF_INTAKE]')) {
             console.log('[Intake-2] Analyst determined intake is complete. Proceeding to report generation.');
             
             const currentDate = new Date().toUTCString();
-            const managerSystemPrompt = `You are a Senior Project Manager. You will be given a transcript of a client interview. Your task is to create a structured, professional project report in JSON format.
+            const managerSystemPromptContent = `You are a Senior Project Manager. You will be given a transcript of a client interview. Your task is to create a structured, professional project report in JSON format.
             The JSON object must have these exact keys: "projectName", "projectSummary", "keyFeatures", "estimatedTimeline", "interviewDate".
             - projectName: A concise, descriptive name for the project.
             - projectSummary: A 2-3 sentence paragraph summarizing the client's problem and the proposed solution.
@@ -231,22 +269,49 @@ app.post('/intake', async (req, res) => {
             - interviewDate: The date and time of the interview. Use this exact value: "${currentDate}".
             Analyze the transcript carefully to provide a realistic estimate. Base your response ONLY on the provided transcript.`;
 
-            const managerMessages = [
-                { role: 'system', content: managerSystemPrompt },
-                { role: 'user', content: `Here is the interview transcript:\n\n${conversation.map(m => `${m.role}: ${m.content}`).join('\n')}` }
+            const managerSafetySettings = [
+                {
+                    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+                {
+                    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+                {
+                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+                {
+                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+            ];
+
+            const managerHistory = [
+                {
+                    role: "user",
+                    parts: [{ text: managerSystemPromptContent }],
+                },
+                {
+                    role: "model",
+                    parts: [{ text: "Okay, I understand. I will generate the report in JSON format." }],
+                },
+                {
+                    role: "user",
+                    parts: [{ text: `Here is the interview transcript:\n\n${conversation.map(m => `${m.role}: ${m.content}`).join('\n')}` }],
+                }
             ];
             
             console.log('[Intake-3] Asking Manager AI to generate the report...');
-            const managerResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-                body: JSON.stringify({ model: 'gpt-3.5-turbo-0125', response_format: { type: "json_object" }, messages: managerMessages }),
+            const managerModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro", safetySettings: managerSafetySettings });
+            const managerChat = managerModel.startChat({
+                history: managerHistory,
+                generationConfig: { responseMimeType: "application/json" },
             });
-
-            if (!managerResponse.ok) throw new Error('Manager AI API request failed.');
-
-            const managerData = await managerResponse.json();
-            const reportJsonString = managerData.choices[0]?.message?.content;
+            const managerResult = await managerChat.sendMessage("Generate the project report as a JSON object.");
+            const managerResponse = await managerResult.response;
+            const reportJsonString = managerResponse.text();
             let report;
 
             try {
