@@ -237,10 +237,6 @@ app.post('/intake', async (req, res) => {
                 role: "user",
                 parts: [{ text: analystSystemPromptContent }],
             },
-            {
-                role: "model",
-                parts: [{ text: "Okay, I understand. I will adhere to these instructions." }],
-            },
             ...conversation.map(msg => ({
                 role: msg.role === 'assistant' ? 'model' : 'user',
                 parts: [{ text: msg.content }],
@@ -250,11 +246,16 @@ app.post('/intake', async (req, res) => {
         const lastUserMessage = conversation[conversation.length - 1].content;
 
         console.log(`[Intake-1] Asking Analyst AI about: "${lastUserMessage}"`);
-        const analystModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: analystSafetySettings });
-        const analystChat = analystModel.startChat({ history: analystHistory });
-        const analystResult = await analystChat.sendMessage(lastUserMessage);
-        const analystResponse = await analystResult.response;
-        let analystReply = analystResponse.text();
+        try {
+            const analystModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: analystSafetySettings });
+            const analystChat = analystModel.startChat({ history: analystHistory });
+            const analystResult = await analystChat.sendMessage(lastUserMessage);
+            const analystResponse = await analystResult.response;
+            analystReply = analystResponse.text();
+        } catch (geminiError) {
+            console.error('[ERROR] Error communicating with Gemini API for analyst:', geminiError);
+            return res.status(500).json({ error: 'Failed to get response from Analyst AI.' });
+        }
 
         if (analystReply.includes('[END_OF_INTAKE]')) {
             console.log('[Intake-2] Analyst determined intake is complete. Proceeding to report generation.');
@@ -294,24 +295,24 @@ app.post('/intake', async (req, res) => {
                     parts: [{ text: managerSystemPromptContent }],
                 },
                 {
-                    role: "model",
-                    parts: [{ text: "Okay, I understand. I will generate the report in JSON format." }],
-                },
-                {
                     role: "user",
                     parts: [{ text: `Here is the interview transcript:\n\n${conversation.map(m => `${m.role}: ${m.content}`).join('\n')}` }],
                 }
             ];
             
-            console.log('[Intake-3] Asking Manager AI to generate the report...');
-            const managerModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: managerSafetySettings });
-            const managerChat = managerModel.startChat({
-                history: managerHistory,
-                generationConfig: { responseMimeType: "application/json" },
-            });
-            const managerResult = await managerChat.sendMessage("Generate the project report as a JSON object.");
-            const managerResponse = await managerResult.response;
-            const reportJsonString = managerResponse.text();
+            try {
+                const managerModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: managerSafetySettings });
+                const managerChat = managerModel.startChat({
+                    history: managerHistory,
+                    generationConfig: { responseMimeType: "application/json" },
+                });
+                const managerResult = await managerChat.sendMessage("Generate the project report as a JSON object.");
+                const managerResponse = await managerResult.response;
+                reportJsonString = managerResponse.text();
+            } catch (geminiError) {
+                console.error('[ERROR] Error communicating with Gemini API for manager:', geminiError);
+                return res.status(500).json({ error: 'Failed to generate project report.' });
+            }
             let report;
 
             try {
