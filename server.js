@@ -148,7 +148,7 @@ app.post('/chat', async (req, res) => {
 
         try {
         console.log('[Chat-3] Sending request to Gemini API...');
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro", safetySettings });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings });
         const chat = model.startChat({
             history: [
                 {
@@ -250,7 +250,7 @@ app.post('/intake', async (req, res) => {
         const lastUserMessage = conversation[conversation.length - 1].content;
 
         console.log(`[Intake-1] Asking Analyst AI about: "${lastUserMessage}"`);
-        const analystModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro", safetySettings: analystSafetySettings });
+        const analystModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: analystSafetySettings });
         const analystChat = analystModel.startChat({ history: analystHistory });
         const analystResult = await analystChat.sendMessage(lastUserMessage);
         const analystResponse = await analystResult.response;
@@ -304,7 +304,7 @@ app.post('/intake', async (req, res) => {
             ];
             
             console.log('[Intake-3] Asking Manager AI to generate the report...');
-            const managerModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro", safetySettings: managerSafetySettings });
+            const managerModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: managerSafetySettings });
             const managerChat = managerModel.startChat({
                 history: managerHistory,
                 generationConfig: { responseMimeType: "application/json" },
