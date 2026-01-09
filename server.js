@@ -148,6 +148,9 @@ app.post('/chat', async (req, res) => {
 
         try {
         console.log('[Chat-3] Sending request to Gemini API...');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 seconds timeout
+
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings });
         const chat = model.startChat({
             history: [
@@ -165,7 +168,8 @@ app.post('/chat', async (req, res) => {
             },
         });
 
-        const result = await chat.sendMessage(message);
+        const result = await chat.sendMessage(message, { signal: controller.signal });
+        clearTimeout(timeoutId);
         const response = await result.response;
         const replyContent = response.text();
         
@@ -247,9 +251,13 @@ app.post('/intake', async (req, res) => {
 
         console.log(`[Intake-1] Asking Analyst AI about: "${lastUserMessage}"`);
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 seconds timeout
+
             const analystModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: analystSafetySettings });
             const analystChat = analystModel.startChat({ history: analystHistory });
-            const analystResult = await analystChat.sendMessage(lastUserMessage);
+            const analystResult = await analystChat.sendMessage(lastUserMessage, { signal: controller.signal });
+            clearTimeout(timeoutId);
             const analystResponse = await analystResult.response;
             analystReply = analystResponse.text();
         } catch (geminiError) {
@@ -301,12 +309,16 @@ app.post('/intake', async (req, res) => {
             ];
             
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 seconds timeout
+
                 const managerModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", safetySettings: managerSafetySettings });
                 const managerChat = managerModel.startChat({
                     history: managerHistory,
                     generationConfig: { responseMimeType: "application/json" },
                 });
-                const managerResult = await managerChat.sendMessage("Generate the project report as a JSON object.");
+                const managerResult = await managerChat.sendMessage("Generate the project report as a JSON object.", { signal: controller.signal });
+                clearTimeout(timeoutId);
                 const managerResponse = await managerResult.response;
                 reportJsonString = managerResponse.text();
             } catch (geminiError) {
